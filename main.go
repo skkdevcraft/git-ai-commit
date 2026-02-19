@@ -293,7 +293,18 @@ You are an expert software engineer. Write a Git commit message for the followin
 
 Requirements:
 - Output plain text only.
-- First line: a concise subject in imperative mood, max 72 characters.
+- First line: a concise subject following the Conventional Commits format, max 72 characters.
+  The subject must start with one of these types followed by a colon and a space:
+    feat:     a new feature
+    fix:      a bug fix
+    docs:     documentation changes only
+    style:    formatting, whitespace — no logic change
+    refactor: code restructured without adding features or fixing bugs
+    perf:     performance improvement
+    test:     adding or updating tests
+    chore:    build process, tooling, dependency updates, CI config
+  Use a scope in parentheses when it helps clarity, e.g. "feat(auth): add OAuth2 login".
+  Write the description in imperative mood, e.g. "feat: add retry logic" not "feat: added retry logic".
 - Then a blank line.
 - Then 3-7 bullet points ("- ") summarizing key changes.
 - Mention user-visible behavior changes and important refactors.
