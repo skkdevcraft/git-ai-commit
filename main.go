@@ -9,7 +9,7 @@
 //
 // Git config keys (suggested):
 //
-//	ai-commit.endpoint        (e.g. https://api.openai.com/v1/chat/completions)
+//	ai-commit.endpoint        (required; base URL up to /v1, e.g. https://api.openai.com/v1)
 //	ai-commit.model           (e.g. gpt-4o-mini)
 //	ai-commit.apiKey          (your API key)
 //	ai-commit.maxDiffBytes    (optional, int; default 200000)
@@ -210,11 +210,9 @@ func runPrepareCommitMsg(args []string) error {
 }
 
 func readConfig() (config, error) {
-	// Reasonable defaults.
 	cfg := config{
-		Endpoint:       "https://api.openai.com/v1/chat/completions",
+		Endpoint:       "https://api.openai.com/v1",
 		Model:          "gpt-5-nano",
-		APIKey:         "",
 		MaxDiffBytes:   200_000,
 		TimeoutSeconds: 30,
 	}
@@ -240,15 +238,20 @@ func readConfig() (config, error) {
 		}
 	}
 
+	if cfg.Endpoint == "" {
+		return cfg, errors.New("missing git config: ai-commit.endpoint (set to base URL, e.g. https://api.openai.com/v1)")
+	}
 	if cfg.Model == "" {
 		return cfg, errors.New("missing git config: ai-commit.model")
 	}
 	if cfg.APIKey == "" {
 		return cfg, errors.New("missing git config: ai-commit.apiKey")
 	}
-	if cfg.Endpoint == "" {
-		return cfg, errors.New("missing git config: ai-commit.endpoint")
-	}
+
+	// Normalise: strip trailing slash, then append the fixed path.
+	// User provides the base URL up to /v1, e.g. https://api.openai.com/v1
+	base := strings.TrimRight(cfg.Endpoint, "/")
+	cfg.Endpoint = base + "/chat/completions"
 
 	return cfg, nil
 }
