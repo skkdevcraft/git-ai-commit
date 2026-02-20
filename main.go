@@ -472,6 +472,10 @@ Requirements:
 - Then 3-7 bullet points ("- ") summarizing key changes.
 - Mention user-visible behavior changes and important refactors.
 - Do not include code fences.
+- Do not use emoji anywhere in the output.
+- Do not use any quotation marks (single, double, or backticks) in the output.
+- Do not use backslashes or any other escape characters in the output.
+- The output must be safe to copy and paste directly into a terminal without any shell interpretation issues.
 
 Staged diff:
 %s
