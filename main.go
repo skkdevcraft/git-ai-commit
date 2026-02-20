@@ -11,6 +11,10 @@
 //
 //	git-ai-commit config [--global] [--preset openai|anthropic|ollama|lmstudio]
 //
+// Usage (install):
+//
+//	git-ai-commit install
+//
 // Git config keys (suggested):
 //
 //	ai-commit.endpoint        (required; base URL up to /v1, e.g. https://api.openai.com/v1)
@@ -37,6 +41,8 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -142,6 +148,13 @@ func main() {
 		}
 		os.Exit(0)
 
+	case "install":
+		if err := runInstall(); err != nil {
+			fmt.Fprintf(os.Stderr, "git-ai-commit: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+
 	case "--help", "-h", "help":
 		printUsageAndExit(0)
 
@@ -161,21 +174,153 @@ Usage:
   git-ai-commit hook prepare-commit-msg <commit-msg-file> [<source> [<sha>]]
   git-ai-commit show
   git-ai-commit config [--global] [--preset openai|anthropic|ollama|lmstudio]
+  git-ai-commit install
 
 Commands:
-  hook    Called from the Git prepare-commit-msg hook to prefill the commit
-          message editor with an LLM-generated message based on staged diff.
-  show    Query the LLM with the current staged diff and print the proposed
-          commit message to stdout, without writing any files.
-  config  Print the git config commands needed to configure git-ai-commit.
-          Copy and paste the output into your terminal to apply the settings.
+  hook     Called from the Git prepare-commit-msg hook to prefill the commit
+           message editor with an LLM-generated message based on staged diff.
+  show     Query the LLM with the current staged diff and print the proposed
+           commit message to stdout, without writing any files.
+  config   Print the git config commands needed to configure git-ai-commit.
+           Copy and paste the output into your terminal to apply the settings.
+  install  Install the prepare-commit-msg hook into the current repository.
+           Will not overwrite an existing hook. Must be run from inside a
+           Git repository.
 
-Config flags:
+Config flags (for config command):
   --global           Add --global to the generated git config commands
                      (writes to ~/.gitconfig instead of the repo's .git/config).
   --preset <name>    Use a preset endpoint/model for a known provider.
                      Available presets: openai, anthropic, ollama, lmstudio`)
 	os.Exit(code)
+}
+
+// runInstall installs the prepare-commit-msg hook into the current repo's
+// .git/hooks directory. It will not overwrite an existing hook file.
+func runInstall() error {
+	// Find the root of the current git repository.
+	gitDir, err := getGitDir()
+	if err != nil {
+		return fmt.Errorf("not inside a Git repository (or Git is not installed): %w", err)
+	}
+
+	hooksDir := filepath.Join(gitDir, "hooks")
+	hookFile := filepath.Join(hooksDir, "prepare-commit-msg")
+
+	fmt.Printf("Git directory : %s\n", gitDir)
+	fmt.Printf("Hooks directory: %s\n", hooksDir)
+	fmt.Printf("Hook file      : %s\n", hookFile)
+	fmt.Println()
+
+	// Create the hooks directory if it somehow doesn't exist yet.
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		return fmt.Errorf("create hooks directory: %w", err)
+	}
+
+	// Refuse to overwrite an existing hook.
+	if _, err := os.Stat(hookFile); err == nil {
+		// File exists — check whether it already delegates to git-ai-commit.
+		existing, readErr := os.ReadFile(hookFile)
+		if readErr == nil && strings.Contains(string(existing), "git-ai-commit") {
+			fmt.Println("Hook is already installed and references git-ai-commit. Nothing to do.")
+			fmt.Printf("  %s\n", hookFile)
+			return nil
+		}
+		return fmt.Errorf(
+			"hook file already exists and was not created by git-ai-commit:\n  %s\n\n"+
+				"To install manually, add the following line to that file:\n  %s",
+			hookFile, hookLine(),
+		)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat hook file: %w", err)
+	}
+
+	// Write the hook.
+	content := hookContent()
+	if err := os.WriteFile(hookFile, []byte(content), 0o755); err != nil {
+		return fmt.Errorf("write hook file: %w", err)
+	}
+
+	// On Windows the executable bit is meaningless, but we set it anyway for
+	// consistency; Git for Windows reads the shebang line regardless.
+	// On Unix we need the file to be executable — already set via 0o755 above.
+
+	fmt.Printf("Hook installed successfully on %s.\n", osFriendlyName())
+	fmt.Println()
+	fmt.Println("File created:")
+	fmt.Printf("  %s\n", hookFile)
+	fmt.Println()
+	fmt.Println("Contents written:")
+	fmt.Println("  ---")
+	for _, line := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
+		fmt.Printf("  %s\n", line)
+	}
+	fmt.Println("  ---")
+	fmt.Println()
+	fmt.Println("Next step: configure your LLM provider by running:")
+	fmt.Println("  git-ai-commit config --preset openai   (or anthropic, ollama, lmstudio)")
+	return nil
+}
+
+// getGitDir returns the absolute path to the .git directory for the current
+// working directory. It uses `git rev-parse --git-dir` so it works in
+// worktrees and repos with non-standard GIT_DIR locations.
+func getGitDir() (string, error) {
+	cmd := exec.Command("git", "rev-parse", "--git-dir")
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String()))
+	}
+	raw := strings.TrimSpace(out.String())
+	// The path may be relative (e.g. ".git"); make it absolute.
+	abs, err := filepath.Abs(raw)
+	if err != nil {
+		return "", err
+	}
+	return abs, nil
+}
+
+// hookContent returns the full text of the prepare-commit-msg hook script,
+// adapted for the current operating system.
+func hookContent() string {
+	switch runtime.GOOS {
+	case "windows":
+		// Git for Windows ships with a POSIX sh layer, so a sh shebang works.
+		// However some users run Git from plain cmd.exe or PowerShell where
+		// hook scripts must be .bat/.cmd files — but Git itself always invokes
+		// hooks via sh when using Git Bash / MSYS2 / Cygwin, which covers the
+		// vast majority of Windows Git installations. We therefore emit the
+		// same sh script and add a comment explaining this.
+		return "#!/bin/sh\n" +
+			"# git-ai-commit prepare-commit-msg hook (Windows / Git for Windows)\n" +
+			"# Requires git-ai-commit.exe to be on your PATH.\n" +
+			"exec git-ai-commit hook prepare-commit-msg \"$@\"\n"
+	default:
+		// Linux and macOS.
+		return "#!/bin/sh\n" +
+			"# git-ai-commit prepare-commit-msg hook\n" +
+			"exec git-ai-commit hook prepare-commit-msg \"$@\"\n"
+	}
+}
+
+// hookLine returns just the exec line, used in error messages.
+func hookLine() string {
+	return "exec git-ai-commit hook prepare-commit-msg \"$@\""
+}
+
+// osFriendlyName returns a human-readable OS label for display purposes.
+func osFriendlyName() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "macOS"
+	case "windows":
+		return "Windows"
+	default:
+		return "Linux"
+	}
 }
 
 // runConfig prints ready-to-paste git config commands for the user.
