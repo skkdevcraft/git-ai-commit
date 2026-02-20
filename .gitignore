@@ -32,3 +32,4 @@ go.work.sum
 # .vscode/
 
 git-ai-commit
+dist

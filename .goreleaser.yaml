@@ -4,7 +4,6 @@ builds:
   - binary: git-ai-commit
     goos:   [linux, darwin, windows]
     goarch: [amd64, arm64]
-    ldflags: ["-s -w"]   
     ldflags:
       - "-s -w" # strip debug info, shrink binary size
       - "-X main.version={{.Version}}"
@@ -12,10 +11,10 @@ builds:
       - "-X main.date={{.Date}}"
 
 archives:
-  - format: tar.gz
+  - formats: ['tar.gz']
     format_overrides:
       - goos: windows
-        format: zip
+        formats: ['zip']
 
 checksum:
   name_template: "checksums.txt"
