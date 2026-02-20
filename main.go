@@ -393,25 +393,55 @@ func runConfig(args []string) error {
 		scopeLabel = "global (~/.gitconfig)"
 	}
 
+	// Derive a conventional environment-variable name from the preset name,
+	// e.g. "openai" → "OPENAI_API_KEY", "anthropic" → "ANTHROPIC_API_KEY".
+	envVarName := strings.ToUpper(p.Name) + "_API_KEY"
+
+	// Extract protocol and host from the preset endpoint for the git-credentials example.
+	endpointURL, _ := url.Parse(p.Endpoint)
+	credProtocol := endpointURL.Scheme
+	credHost := endpointURL.Hostname()
+
+	isLocalProvider := p.APIKeyHint != "" && !strings.HasPrefix(p.APIKeyHint, "sk-")
+
 	fmt.Printf("# git-ai-commit configuration — %s (%s)\n", p.Description, scopeLabel)
-	fmt.Println("#")
 	fmt.Println("# Copy and paste the commands below into your terminal.")
-	fmt.Println("#")
-	fmt.Println("# The apiKey value below is a placeholder. Three forms are accepted:")
-	fmt.Println("#   Literal key  : the actual key string (least secure — stored in git config)")
-	fmt.Println("#   Env variable : a name starting with $ — read from the environment at runtime")
-	fmt.Println("#                  e.g. \"$OPENAI_API_KEY\"")
-	fmt.Println("#   Credentials  : the string \"git-credentials\" — delegates to your configured")
-	fmt.Println("#                  git credential helper (most secure)")
-	if p.APIKeyHint != "" && !strings.HasPrefix(p.APIKeyHint, "sk-") {
-		// Local providers don't need a real key, but the field must be non-empty.
+	fmt.Println()
+
+	// ── Option A: literal key ────────────────────────────────────────────────
+	fmt.Println("# ── Option A: store a literal API key in git config (simplest, least secure)")
+	if isLocalProvider {
 		fmt.Printf("# %s accepts any non-empty string as the API key.\n", p.Description)
 	}
-	fmt.Println()
 	fmt.Printf("git config %sai-commit.endpoint %q\n", scopeFlag, p.Endpoint)
 	fmt.Printf("git config %sai-commit.model    %q\n", scopeFlag, p.Model)
 	fmt.Printf("git config %sai-commit.apiKey   %q\n", scopeFlag, p.APIKeyHint)
 	fmt.Println()
+
+	if !isLocalProvider {
+		// ── Option B: environment variable ──────────────────────────────────
+		fmt.Printf("# ── Option B: read the key from an environment variable at runtime\n")
+		fmt.Printf("#    The key never touches disk. Add the export to your shell profile\n")
+		fmt.Printf("#    (e.g. ~/.zshrc, ~/.bashrc, ~/.bash_profile) so it is always set.\n")
+		fmt.Printf("export %s=\"your-api-key-here\"\n", envVarName)
+		fmt.Printf("git config %sai-commit.endpoint %q\n", scopeFlag, p.Endpoint)
+		fmt.Printf("git config %sai-commit.model    %q\n", scopeFlag, p.Model)
+		fmt.Printf("git config %sai-commit.apiKey   \"$%s\"\n", scopeFlag, envVarName)
+		fmt.Println()
+
+		// ── Option C: git credential helper ─────────────────────────────────
+		fmt.Printf("# ── Option C: store the key in your OS keychain via git credential helper\n")
+		fmt.Printf("#    Run the two commands below once to store the key; git-ai-commit will\n")
+		fmt.Printf("#    retrieve it automatically on every commit.\n")
+		fmt.Printf("git config %sai-commit.endpoint %q\n", scopeFlag, p.Endpoint)
+		fmt.Printf("git config %sai-commit.model    %q\n", scopeFlag, p.Model)
+		fmt.Printf("git config %sai-commit.apiKey   \"git-credentials\"\n", scopeFlag)
+		fmt.Printf("# Then store the key once:\n")
+		fmt.Printf("printf 'protocol=%s\\nhost=%s\\nusername=api-key\\npassword=your-api-key-here\\n' | git credential approve\n",
+			credProtocol, credHost)
+		fmt.Println()
+	}
+
 	fmt.Println("# Optional tuning:")
 	fmt.Printf("# git config %sai-commit.maxDiffBytes    \"200000\"\n", scopeFlag)
 	fmt.Printf("# git config %sai-commit.timeoutSeconds  \"30\"\n", scopeFlag)
