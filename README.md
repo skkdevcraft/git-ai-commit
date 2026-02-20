@@ -25,25 +25,12 @@ If the LLM or network is unavailable, the hook exits cleanly and Git opens the e
 
 Choose the method that matches your system.
 
-#### macOS and Linux — build from source (requires Go 1.21+)
+---
+
+### Option A — Homebrew (macOS, recommended)
 
 ```sh
-git clone https://github.com/your-org/git-ai-commit.git
-cd git-ai-commit
-go build -o git-ai-commit .
-```
-
-Then move the binary somewhere on your `PATH`:
-
-```sh
-# macOS / Linux — pick any directory already on your PATH, e.g.:
-sudo mv git-ai-commit /usr/local/bin/
-
-# Or without sudo, into a user-local bin directory:
-mkdir -p ~/.local/bin
-mv git-ai-commit ~/.local/bin/
-# Make sure ~/.local/bin is on your PATH (add to ~/.bashrc or ~/.zshrc):
-# export PATH="$HOME/.local/bin:$PATH"
+brew install skkdevcraft/tap/git-ai-commit
 ```
 
 Verify:
@@ -52,47 +39,75 @@ Verify:
 git-ai-commit --help
 ```
 
-#### macOS — Homebrew (if a formula is available)
+---
+
+### Option B — One-line install (Linux / macOS)
+
+#### Linux (x86_64)
 
 ```sh
-brew install git-ai-commit
+curl -fsSL https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_Linux_x86_64.tar.gz | tar -xz && sudo mv git-ai-commit /usr/local/bin/
 ```
 
-#### Windows — build from source (requires Go 1.21+)
+#### Linux (arm64)
 
-Open a terminal (Command Prompt, PowerShell, or Git Bash):
-
-```bat
-git clone https://github.com/your-org/git-ai-commit.git
-cd git-ai-commit
-go build -o git-ai-commit.exe .
+```sh
+curl -fsSL https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_Linux_arm64.tar.gz | tar -xz && sudo mv git-ai-commit /usr/local/bin/
 ```
 
-Move the binary to a directory on your `PATH`. A simple option is to place it
-alongside Git's own binaries:
+#### macOS (Apple Silicon)
 
-```bat
-:: Find where Git is installed
-where git
-:: Typical output: C:\Program Files\Git\cmd\git.exe
-
-:: Copy the binary there (adjust the path if different)
-copy git-ai-commit.exe "C:\Program Files\Git\cmd\"
+```sh
+curl -fsSL https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_Darwin_arm64.tar.gz | tar -xz && sudo mv git-ai-commit /usr/local/bin/
 ```
 
-Or add a dedicated directory to your user `PATH`:
+#### macOS (Intel)
 
-1. Create a folder, e.g. `C:\Users\YourName\bin`.
-2. Copy `git-ai-commit.exe` into it.
-3. Open **System Properties → Environment Variables**, edit the `Path` variable
-   for your user account, and add `C:\Users\YourName\bin`.
-4. Open a new terminal and verify:
-
-```bat
-git-ai-commit --help
+```sh
+curl -fsSL https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_Darwin_x86_64.tar.gz | tar -xz && sudo mv git-ai-commit /usr/local/bin/
 ```
+
+If you prefer installing without `sudo`:
+
+```sh
+mkdir -p ~/.local/bin && \
+curl -fsSL https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_$(uname -s)_$(uname -m | sed 's/x86_64/x86_64/;s/arm64/arm64/').tar.gz \
+| tar -xz && mv git-ai-commit ~/.local/bin/
+```
+
+Make sure `~/.local/bin` is on your `PATH`.
 
 ---
+
+### Windows (PowerShell, one line)
+
+#### Windows (x86_64)
+
+```powershell
+iwr https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_Windows_x86_64.zip -OutFile git-ai-commit.zip; Expand-Archive git-ai-commit.zip -Force; Move-Item git-ai-commit.exe "$env:USERPROFILE\bin\git-ai-commit.exe"
+```
+
+Ensure `$env:USERPROFILE\bin` is in your `PATH`.
+
+---
+
+### Option C — Install with `go install` (requires Go 1.21+)
+
+```sh
+go install github.com/skkdevcraft/git-ai-commit@latest
+```
+
+The binary is placed in:
+
+```
+$(go env GOPATH)/bin
+```
+
+Make sure it is on your `PATH`:
+
+```sh
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
 
 ### 2. Configure your LLM provider
 

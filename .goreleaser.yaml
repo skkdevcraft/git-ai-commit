@@ -11,10 +11,14 @@ builds:
       - "-X main.date={{.Date}}"
 
 archives:
-  - formats: ['tar.gz']
+  - name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64{{ else }}{{ .Arch }}{{ end }}
+    formats: [tar.gz]
     format_overrides:
       - goos: windows
-        formats: ['zip']
+        formats: [zip]
 
 checksum:
   name_template: "checksums.txt"
@@ -23,3 +27,18 @@ release:
   github:
     owner: skkdevcraft
     name:  git-ai-commit
+
+brews:
+  - name: git-ai-commit
+    repository:
+      owner: skkdevcraft
+      name: homebrew-tap
+      branch: main
+    commit_author:
+      name: Stoyan Krastev (skkdevcraft)
+      email: 163518570+skkdevcraft@users.noreply.github.com
+    homepage: https://github.com/skkdevcraft/git-ai-commit
+    description: AI-powered git commit message generator
+    license: MIT
+    install: |
+      bin.install "git-ai-commit"
