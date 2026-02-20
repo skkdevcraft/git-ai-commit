@@ -1,0 +1,25 @@
+project_name: git-ai-commit
+builds:
+  - binary: git-ai-commit
+    goos:   [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags: ["-s -w"]   
+    ldflags:
+      - "-s -w" # strip debug info, shrink binary size
+      - "-X main.version={{.Version}}"
+      - "-X main.commit={{.Commit}}"
+      - "-X main.date={{.Date}}"
+
+archives:
+  - format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  github:
+    owner: skkdevcraft
+    name:  git-ai-commit

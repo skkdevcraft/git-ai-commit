@@ -118,6 +118,12 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "version", "--version", "-v":
+		fmt.Printf("git-ai-commit %s\n", version)
+		fmt.Printf("  commit : %s\n", commit)
+		fmt.Printf("  built  : %s\n", date)
+		os.Exit(0)
+
 	case "hook":
 		if len(os.Args) < 3 {
 			printUsageAndExit(2)
@@ -175,6 +181,7 @@ Usage:
   git-ai-commit show
   git-ai-commit config [--global] [--preset openai|anthropic|ollama|lmstudio]
   git-ai-commit install
+	git-ai-commit version
 
 Commands:
   hook     Called from the Git prepare-commit-msg hook to prefill the commit
@@ -186,6 +193,7 @@ Commands:
   install  Install the prepare-commit-msg hook into the current repository.
            Will not overwrite an existing hook. Must be run from inside a
            Git repository.
+  version  Print the version of the tool.
 
 Config flags (for config command):
   --global           Add --global to the generated git config commands
