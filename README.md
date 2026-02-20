@@ -129,15 +129,7 @@ git-ai-commit config --preset ollama
 git-ai-commit config --preset lmstudio
 ```
 
-Copy the printed commands into your terminal and run them. For example, for OpenAI the output looks like:
-
-```sh
-git config --global ai-commit.endpoint "https://api.openai.com/v1"
-git config --global ai-commit.model    "gpt-4o-mini"
-git config --global ai-commit.apiKey   "sk-..."   # replace with your real key
-```
-
-Replace the `apiKey` value with your actual API key, then run the commands.
+The `config` command prints three ready-to-paste options for storing your API key, from simplest to most secure. Pick one and run those commands. See [API key configuration](#api-key-configuration) for a full explanation of each option.
 
 Optional tuning (defaults shown):
 
@@ -259,6 +251,62 @@ git config --global ai-commit.model "gpt-4o"
 
 ---
 
+## API key configuration
+
+The `ai-commit.apiKey` config value accepts three forms. Run `git-ai-commit config --preset <name>` to get copy-pasteable commands for all three options tailored to your chosen provider.
+
+### Option A — Literal key (simplest)
+
+Store the key directly in git config. This is the quickest option but the key is written to `~/.gitconfig` in plain text.
+
+```sh
+git config --global ai-commit.endpoint "https://api.openai.com/v1"
+git config --global ai-commit.model    "gpt-4o-mini"
+git config --global ai-commit.apiKey   "sk-your-real-key-here"
+```
+
+### Option B — Environment variable (recommended)
+
+Set the key in your shell profile so it is never written to disk by this tool. The config value must start with `$`; the rest is the variable name.
+
+```sh
+# Add to ~/.zshrc or ~/.bashrc:
+export OPENAI_API_KEY="sk-your-real-key-here"
+```
+
+```sh
+git config --global ai-commit.endpoint "https://api.openai.com/v1"
+git config --global ai-commit.model    "gpt-4o-mini"
+git config --global ai-commit.apiKey   "$OPENAI_API_KEY"
+```
+
+At runtime, git-ai-commit reads the variable from the environment. If the variable is unset or empty, the tool reports an error instead of silently failing.
+
+### Option C — Git credential helper (most secure)
+
+Use the exact string `git-credentials` as the value. git-ai-commit will call `git credential fill` at runtime, querying whatever credential helper your system has configured — macOS Keychain, Windows Credential Manager, GNOME libsecret, `pass`, and so on.
+
+Store the key once using `git credential approve`:
+
+```sh
+printf 'protocol=https\nhost=api.openai.com\nusername=api-key\npassword=sk-your-real-key-here\n' \
+  | git credential approve
+```
+
+Then point the config at the helper:
+
+```sh
+git config --global ai-commit.endpoint "https://api.openai.com/v1"
+git config --global ai-commit.model    "gpt-4o-mini"
+git config --global ai-commit.apiKey   "git-credentials"
+```
+
+The key is retrieved from your OS keychain on every commit and is never stored in any config file. The `username=api-key` label is a convention used to keep LLM credentials separate from any Git hosting credentials on the same host.
+
+> **Note:** Local providers such as Ollama and LM Studio do not require a real API key. For those presets the `config` command only shows Option A, using a placeholder value that the provider accepts.
+
+---
+
 ## Commit message format
 
 Generated messages follow [Conventional Commits](https://www.conventionalcommits.org):
@@ -285,7 +333,7 @@ All keys are read from standard Git config (system, global, or local).
 |---|---|---|---|
 | `ai-commit.endpoint` | yes | `https://api.openai.com/v1` | Base URL of the OpenAI-compatible API |
 | `ai-commit.model` | no | `gpt-5-nano` | Model name to use |
-| `ai-commit.apiKey` | no | _(empty)_ | API key (not needed for local providers) |
+| `ai-commit.apiKey` | no | _(empty)_ | API key — literal value, `$ENV_VAR`, or `git-credentials` |
 | `ai-commit.maxDiffBytes` | no | `200000` | Truncate diffs larger than this (bytes) |
 | `ai-commit.timeoutSeconds` | no | `30` | HTTP timeout for the LLM request |
 
@@ -298,6 +346,15 @@ Check that `git-ai-commit` is on your `PATH` by running `git-ai-commit --help` f
 
 **LLM HTTP 401 / authentication error.**
 Your API key is missing or incorrect. Re-run `git-ai-commit config --preset openai` (or your provider), update the `apiKey` value, and apply the command.
+
+**Environment variable not found.**
+If you set `ai-commit.apiKey` to a `$VAR` reference, make sure the variable is exported in the shell that runs the hook (not just in your interactive shell). Add the `export` line to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) rather than setting it only for the current session.
+
+**git credential fill returns no password.**
+Run the `git credential approve` command from Option C above, substituting your actual key for the `password` field. You can verify the credential was stored with:
+```sh
+printf 'protocol=https\nhost=api.openai.com\nusername=api-key\n\n' | git credential fill
+```
 
 **LLM request timed out.**
 Increase the timeout: `git config --global ai-commit.timeoutSeconds "60"`. For local models (Ollama, LM Studio) make sure the server is running before committing.
