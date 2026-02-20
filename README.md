@@ -9,6 +9,12 @@ Works with any OpenAI-compatible API: OpenAI, Anthropic Claude, Ollama, LM Studi
 ## How it works
 
 1. You stage your changes with `git add`.
+2. Run `git-ai-commit show`, which show the commit message as an output.
+3. Copy the commit message and use it in the git UI of your choice.
+
+Alternatively, you can use the tool as a `hook` (see `git-ai-commit install`):
+
+1. You stage your changes with `git add`.
 2. You run `git commit` as usual.
 3. The `prepare-commit-msg` hook calls `git-ai-commit`, which sends your staged
    diff to the configured LLM.
@@ -61,12 +67,6 @@ curl -fsSL https://github.com/skkdevcraft/git-ai-commit/releases/latest/download
 curl -fsSL https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_Darwin_arm64.tar.gz | tar -xz && sudo mv git-ai-commit /usr/local/bin/
 ```
 
-#### macOS (Intel)
-
-```sh
-curl -fsSL https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_Darwin_x86_64.tar.gz | tar -xz && sudo mv git-ai-commit /usr/local/bin/
-```
-
 If you prefer installing without `sudo`:
 
 ```sh
@@ -84,10 +84,10 @@ Make sure `~/.local/bin` is on your `PATH`.
 #### Windows (x86_64)
 
 ```powershell
-iwr https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_Windows_x86_64.zip -OutFile git-ai-commit.zip; Expand-Archive git-ai-commit.zip -Force; Move-Item git-ai-commit.exe "$env:USERPROFILE\bin\git-ai-commit.exe"
+iwr https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_Windows_x86_64.zip -OutFile git-ai-commit.zip; Expand-Archive git-ai-commit.zip -Force; $extractPath = (Get-Location).Path; $env:Path += ";$extractPath\git-ai-commit"; [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$extractPath\git-ai-commit", "User")
 ```
 
-Ensure `$env:USERPROFILE\bin` is in your `PATH`.
+This command downloads the tool, extracts it and places the extracted path in the PATH environment variable.
 
 ---
 
@@ -110,6 +110,8 @@ export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
 ### 2. Configure your LLM provider
+
+After the tool is installed, you need to tell it which LLM provider to use:
 
 Run the `config` command to print ready-to-paste `git config` settings for your provider. The generated commands write to your global `~/.gitconfig` by default so every repository on your machine can use them.
 
