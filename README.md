@@ -1,0 +1,302 @@
+# git-ai-commit
+
+Automatically prefill your Git commit messages using an LLM. When you run `git commit`, the editor opens with a generated message based on your staged diff — following the [Conventional Commits](https://www.conventionalcommits.org) format, with a concise subject line and a short bullet-point body.
+
+Works with any OpenAI-compatible API: OpenAI, Anthropic Claude, Ollama, LM Studio, and others.
+
+---
+
+## How it works
+
+1. You stage your changes with `git add`.
+2. You run `git commit` as usual.
+3. The `prepare-commit-msg` hook calls `git-ai-commit`, which sends your staged
+   diff to the configured LLM.
+4. The editor opens pre-filled with the generated message.
+5. You review, edit if needed, and save — done.
+
+If the LLM or network is unavailable, the hook exits cleanly and Git opens the editor with a blank message as normal. It never blocks a commit.
+
+---
+
+## Installation
+
+### 1. Install the binary
+
+Choose the method that matches your system.
+
+#### macOS and Linux — build from source (requires Go 1.21+)
+
+```sh
+git clone https://github.com/your-org/git-ai-commit.git
+cd git-ai-commit
+go build -o git-ai-commit .
+```
+
+Then move the binary somewhere on your `PATH`:
+
+```sh
+# macOS / Linux — pick any directory already on your PATH, e.g.:
+sudo mv git-ai-commit /usr/local/bin/
+
+# Or without sudo, into a user-local bin directory:
+mkdir -p ~/.local/bin
+mv git-ai-commit ~/.local/bin/
+# Make sure ~/.local/bin is on your PATH (add to ~/.bashrc or ~/.zshrc):
+# export PATH="$HOME/.local/bin:$PATH"
+```
+
+Verify:
+
+```sh
+git-ai-commit --help
+```
+
+#### macOS — Homebrew (if a formula is available)
+
+```sh
+brew install git-ai-commit
+```
+
+#### Windows — build from source (requires Go 1.21+)
+
+Open a terminal (Command Prompt, PowerShell, or Git Bash):
+
+```bat
+git clone https://github.com/your-org/git-ai-commit.git
+cd git-ai-commit
+go build -o git-ai-commit.exe .
+```
+
+Move the binary to a directory on your `PATH`. A simple option is to place it
+alongside Git's own binaries:
+
+```bat
+:: Find where Git is installed
+where git
+:: Typical output: C:\Program Files\Git\cmd\git.exe
+
+:: Copy the binary there (adjust the path if different)
+copy git-ai-commit.exe "C:\Program Files\Git\cmd\"
+```
+
+Or add a dedicated directory to your user `PATH`:
+
+1. Create a folder, e.g. `C:\Users\YourName\bin`.
+2. Copy `git-ai-commit.exe` into it.
+3. Open **System Properties → Environment Variables**, edit the `Path` variable
+   for your user account, and add `C:\Users\YourName\bin`.
+4. Open a new terminal and verify:
+
+```bat
+git-ai-commit --help
+```
+
+---
+
+### 2. Configure your LLM provider
+
+Run the `config` command to print ready-to-paste `git config` settings for your provider. The generated commands write to your global `~/.gitconfig` by default so every repository on your machine can use them.
+
+```sh
+# OpenAI (default)
+git-ai-commit config --preset openai
+
+# Anthropic Claude
+git-ai-commit config --preset anthropic
+
+# Ollama (local)
+git-ai-commit config --preset ollama
+
+# LM Studio (local)
+git-ai-commit config --preset lmstudio
+```
+
+Copy the printed commands into your terminal and run them. For example, for OpenAI the output looks like:
+
+```sh
+git config --global ai-commit.endpoint "https://api.openai.com/v1"
+git config --global ai-commit.model    "gpt-4o-mini"
+git config --global ai-commit.apiKey   "sk-..."   # replace with your real key
+```
+
+Replace the `apiKey` value with your actual API key, then run the commands.
+
+Optional tuning (defaults shown):
+
+```sh
+git config --global ai-commit.maxDiffBytes   "200000"  # truncate large diffs
+git config --global ai-commit.timeoutSeconds "30"      # LLM request timeout
+```
+
+Verify your configuration:
+
+```sh
+git config --list | grep ai-commit
+```
+
+---
+
+### 3. Install the Git hook
+
+Inside any repository where you want AI-generated commit messages, run:
+
+```sh
+git-ai-commit install
+```
+
+This creates `.git/hooks/prepare-commit-msg` and shows you exactly what was written and where:
+
+```
+Git directory  : /your/project/.git
+Hooks directory: /your/project/.git/hooks
+Hook file      : /your/project/.git/hooks/prepare-commit-msg
+
+Hook installed successfully on macOS.
+
+File created:
+  /your/project/.git/hooks/prepare-commit-msg
+
+Contents written:
+  ---
+  #!/bin/sh
+  # git-ai-commit prepare-commit-msg hook
+  exec git-ai-commit hook prepare-commit-msg "$@"
+  ---
+
+Next step: configure your LLM provider by running:
+  git-ai-commit config --preset openai   (or anthropic, ollama, lmstudio)
+```
+
+The install command will **not overwrite** an existing hook. If you already have a `prepare-commit-msg` hook, it prints the single line you need to add to it manually.
+
+To apply the hook to all future repositories automatically, configure a global Git hook template directory:
+
+```sh
+mkdir -p ~/.git-templates/hooks
+git config --global init.templateDir ~/.git-templates
+git-ai-commit install   # run once from any repo; then copy the hook:
+cp .git/hooks/prepare-commit-msg ~/.git-templates/hooks/
+chmod +x ~/.git-templates/hooks/prepare-commit-msg
+```
+
+New repositories created with `git init` will inherit the hook automatically.
+
+---
+
+## Usage
+
+### Normal commit flow
+
+```sh
+git add .
+git commit        # editor opens pre-filled with the generated message
+```
+
+Review the message, edit if you like, save and close the editor to complete the commit.
+
+### Preview without committing
+
+Print the generated message to stdout without touching any files:
+
+```sh
+git-ai-commit show
+```
+
+### Skip the generated message for a single commit
+
+Pass `-m` to provide your own message — the hook detects existing content and skips the LLM call:
+
+```sh
+git commit -m "chore: manual message, no LLM needed"
+```
+
+---
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `git-ai-commit install` | Install the hook into the current repository |
+| `git-ai-commit config [--global] [--preset NAME]` | Print ready-to-paste config commands |
+| `git-ai-commit show` | Generate and print a commit message for the current staged diff |
+| `git-ai-commit hook prepare-commit-msg FILE [SOURCE [SHA]]` | Called by Git directly; normally not invoked by hand |
+
+---
+
+## Available presets
+
+| Preset | Endpoint | Default model |
+|---|---|---|
+| `openai` | https://api.openai.com/v1 | gpt-4o-mini |
+| `anthropic` | https://api.anthropic.com/v1 | claude-sonnet-4-5 |
+| `ollama` | http://localhost:11434/v1 | llama3 |
+| `lmstudio` | http://localhost:1234/v1 | local-model |
+| `docker` | http://host.docker.internal:1234/v1 | local-model |
+
+You can override the model after applying a preset:
+
+```sh
+git config --global ai-commit.model "gpt-4o"
+```
+
+---
+
+## Commit message format
+
+Generated messages follow [Conventional Commits](https://www.conventionalcommits.org):
+
+```
+feat(auth): add OAuth2 login support
+
+- Add OAuth2 provider configuration to auth package
+- Implement token exchange and refresh flow
+- Store tokens securely using the system keychain
+- Expose new login and logout commands on the CLI
+- Update README with OAuth2 setup instructions
+```
+
+Supported types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`.
+
+---
+
+## Configuration reference
+
+All keys are read from standard Git config (system, global, or local).
+
+| Key | Required | Default | Description |
+|---|---|---|---|
+| `ai-commit.endpoint` | yes | `https://api.openai.com/v1` | Base URL of the OpenAI-compatible API |
+| `ai-commit.model` | no | `gpt-5-nano` | Model name to use |
+| `ai-commit.apiKey` | no | _(empty)_ | API key (not needed for local providers) |
+| `ai-commit.maxDiffBytes` | no | `200000` | Truncate diffs larger than this (bytes) |
+| `ai-commit.timeoutSeconds` | no | `30` | HTTP timeout for the LLM request |
+
+---
+
+## Troubleshooting
+
+**The hook runs but nothing is generated.**
+Check that `git-ai-commit` is on your `PATH` by running `git-ai-commit --help` from the same shell you use to commit. Then verify your config with `git config --list | grep ai-commit`.
+
+**LLM HTTP 401 / authentication error.**
+Your API key is missing or incorrect. Re-run `git-ai-commit config --preset openai` (or your provider), update the `apiKey` value, and apply the command.
+
+**LLM request timed out.**
+Increase the timeout: `git config --global ai-commit.timeoutSeconds "60"`. For local models (Ollama, LM Studio) make sure the server is running before committing.
+
+**Hook already exists error.**
+You already have a `prepare-commit-msg` hook. Open the file and add this line (after any existing logic):
+
+```sh
+exec git-ai-commit hook prepare-commit-msg "$@"
+```
+
+**Windows: hook does not run.**
+Ensure you are using Git for Windows (Git Bash / MSYS2). The hook script uses a `#!/bin/sh` shebang which requires the POSIX shell layer bundled with Git for Windows. Plain `cmd.exe` without Git Bash will not invoke the hook correctly.
+
+---
+
+## License
+
+MIT
