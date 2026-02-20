@@ -7,6 +7,10 @@
 //
 //	git-ai-commit show
 //
+// Usage (config):
+//
+//	git-ai-commit config [--global] [--preset openai|anthropic|ollama|lmstudio]
+//
 // Git config keys (suggested):
 //
 //	ai-commit.endpoint        (required; base URL up to /v1, e.g. https://api.openai.com/v1)
@@ -29,8 +33,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -42,6 +48,62 @@ type config struct {
 	APIKey         string
 	MaxDiffBytes   int
 	TimeoutSeconds int
+}
+
+// preset describes a well-known LLM provider configuration.
+type preset struct {
+	Name        string
+	Endpoint    string
+	Model       string
+	APIKeyHint  string // shown as placeholder if the user hasn't set a key
+	Description string
+}
+
+var presets = []preset{
+	{
+		Name:        "openai",
+		Endpoint:    "https://api.openai.com/v1",
+		Model:       "gpt-4o-mini",
+		APIKeyHint:  "sk-...",
+		Description: "OpenAI (default)",
+	},
+	{
+		Name:        "anthropic",
+		Endpoint:    "https://api.anthropic.com/v1",
+		Model:       "claude-sonnet-4-5",
+		APIKeyHint:  "sk-ant-...",
+		Description: "Anthropic Claude",
+	},
+	{
+		Name:        "ollama",
+		Endpoint:    "http://localhost:11434/v1",
+		Model:       "llama3",
+		APIKeyHint:  "ollama", // Ollama accepts any non-empty string
+		Description: "Ollama (local)",
+	},
+	{
+		Name:        "lmstudio",
+		Endpoint:    "http://localhost:1234/v1",
+		Model:       "local-model",
+		APIKeyHint:  "lm-studio", // LM Studio accepts any non-empty string
+		Description: "LM Studio (local)",
+	},
+	{
+		Name:        "docker",
+		Endpoint:    "http://host.docker.internal:1234/v1",
+		Model:       "local-model",
+		APIKeyHint:  "lm-studio", // LM Studio accepts any non-empty string
+		Description: "LM Studio (local from container)",
+	},
+}
+
+func findPreset(name string) (preset, bool) {
+	for _, p := range presets {
+		if strings.EqualFold(p.Name, name) {
+			return p, true
+		}
+	}
+	return preset{}, false
 }
 
 func main() {
@@ -73,6 +135,13 @@ func main() {
 		}
 		os.Exit(0)
 
+	case "config":
+		if err := runConfig(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "git-ai-commit: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+
 	case "--help", "-h", "help":
 		printUsageAndExit(0)
 
@@ -91,13 +160,101 @@ func printUsageAndExit(code int) {
 Usage:
   git-ai-commit hook prepare-commit-msg <commit-msg-file> [<source> [<sha>]]
   git-ai-commit show
+  git-ai-commit config [--global] [--preset openai|anthropic|ollama|lmstudio]
 
 Commands:
   hook    Called from the Git prepare-commit-msg hook to prefill the commit
           message editor with an LLM-generated message based on staged diff.
   show    Query the LLM with the current staged diff and print the proposed
-          commit message to stdout, without writing any files.`)
+          commit message to stdout, without writing any files.
+  config  Print the git config commands needed to configure git-ai-commit.
+          Copy and paste the output into your terminal to apply the settings.
+
+Config flags:
+  --global           Add --global to the generated git config commands
+                     (writes to ~/.gitconfig instead of the repo's .git/config).
+  --preset <name>    Use a preset endpoint/model for a known provider.
+                     Available presets: openai, anthropic, ollama, lmstudio`)
 	os.Exit(code)
+}
+
+// runConfig prints ready-to-paste git config commands for the user.
+func runConfig(args []string) error {
+	global := true   // default to --global
+	presetName := "" // default to openai
+
+	// Parse flags manually to keep zero dependencies.
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--global":
+			global = true
+		case "--local":
+			global = false
+		case "--preset":
+			i++
+			if i >= len(args) {
+				// use openai as default
+			} else {
+				presetName = args[i]
+			}
+		default:
+			return fmt.Errorf("unknown flag: %s", args[i])
+		}
+	}
+
+	// Resolve preset (default: openai).
+	if presetName == "" {
+		presetName = "openai"
+	}
+	p, ok := findPreset(presetName)
+	if !ok {
+		names := make([]string, len(presets))
+		for i, pr := range presets {
+			names[i] = pr.Name
+		}
+		return fmt.Errorf("unknown preset %q — available: %s", presetName, strings.Join(names, ", "))
+	}
+
+	scopeFlag := ""
+	scopeLabel := "repo-local"
+	if global {
+		scopeFlag = "--global "
+		scopeLabel = "global (~/.gitconfig)"
+	}
+
+	fmt.Printf("# git-ai-commit configuration — %s (%s)\n", p.Description, scopeLabel)
+	fmt.Println("#")
+	fmt.Println("# Copy and paste the commands below into your terminal.")
+	if p.APIKeyHint != "" && !strings.HasPrefix(p.APIKeyHint, "sk-") {
+		// Local providers don't need a real key, but the field must be non-empty.
+		fmt.Printf("# %s accepts any non-empty string as the API key.\n", p.Description)
+	} else {
+		fmt.Printf("# Replace the apiKey value with your actual %s API key.\n", p.Description)
+	}
+	fmt.Println()
+	fmt.Printf("git config %sai-commit.endpoint %q\n", scopeFlag, p.Endpoint)
+	fmt.Printf("git config %sai-commit.model    %q\n", scopeFlag, p.Model)
+	fmt.Printf("git config %sai-commit.apiKey   %q\n", scopeFlag, p.APIKeyHint)
+	fmt.Println()
+	fmt.Println("# Optional tuning:")
+	fmt.Printf("# git config %sai-commit.maxDiffBytes    \"200000\"\n", scopeFlag)
+	fmt.Printf("# git config %sai-commit.timeoutSeconds  \"30\"\n", scopeFlag)
+	fmt.Println()
+	fmt.Println("# Verify with:")
+	fmt.Println("#   git config --list | grep ai-commit")
+	fmt.Println()
+
+	// Print all available presets as a reference.
+	fmt.Println("# Other available presets (re-run with --preset <name>):")
+	for _, pr := range presets {
+		marker := "  "
+		if pr.Name == p.Name {
+			marker = "* "
+		}
+		fmt.Printf("#   %s%-10s  %s  (%s)\n", marker, pr.Name, pr.Endpoint, pr.Model)
+	}
+
+	return nil
 }
 
 // runShow generates a commit message from the staged diff and prints it to stdout.
@@ -242,16 +399,19 @@ func readConfig() (config, error) {
 		return cfg, errors.New("missing git config: ai-commit.endpoint (set to base URL, e.g. https://api.openai.com/v1)")
 	}
 	if cfg.Model == "" {
-		return cfg, errors.New("missing git config: ai-commit.model")
+		// local endpoints may be ok with no model provided...
 	}
 	if cfg.APIKey == "" {
-		return cfg, errors.New("missing git config: ai-commit.apiKey")
+		// local endpoints may be ok with no api key provided...
 	}
 
-	// Normalise: strip trailing slash, then append the fixed path.
-	// User provides the base URL up to /v1, e.g. https://api.openai.com/v1
-	base := strings.TrimRight(cfg.Endpoint, "/")
-	cfg.Endpoint = base + "/chat/completions"
+	// Normalise: resolve to the canonical /chat/completions URL,
+	// handling any combination of trailing slashes, existing /v1, etc.
+	resolved, err := ResolveChatCompletionsEndpoint(cfg.Endpoint)
+	if err != nil {
+		return cfg, fmt.Errorf("invalid ai-commit.endpoint %q: %w", cfg.Endpoint, err)
+	}
+	cfg.Endpoint = resolved
 
 	return cfg, nil
 }
@@ -424,4 +584,34 @@ func hasNonCommentContent(commitMsg string) bool {
 func fatalf(code int, format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "git-ai-commit: "+format+"\n", args...)
 	os.Exit(code)
+}
+
+func ResolveChatCompletionsEndpoint(raw string) (string, error) {
+	if raw == "" {
+		return "", nil
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+
+	// Normalize path
+	cleanPath := path.Clean("/" + strings.TrimPrefix(u.Path, "/"))
+
+	// Remove existing /chat/completions if already present
+	cleanPath = strings.TrimSuffix(cleanPath, "/chat/completions")
+
+	// Ensure we have /v1
+	if !strings.HasSuffix(cleanPath, "/v1") {
+		cleanPath = path.Join(cleanPath, "v1")
+	}
+
+	// Append final path
+	cleanPath = path.Join(cleanPath, "chat", "completions")
+
+	u.Path = cleanPath
+	u.RawQuery = "" // Defensive: remove accidental query params
+
+	return u.String(), nil
 }
