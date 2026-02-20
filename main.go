@@ -19,7 +19,7 @@
 //
 //	ai-commit.endpoint        (required; base URL up to /v1, e.g. https://api.openai.com/v1)
 //	ai-commit.model           (e.g. gpt-4o-mini)
-//	ai-commit.apiKey          (your API key)
+//	ai-commit.apiKey          (your API key, or $ENV_VAR, or "git-credentials")
 //	ai-commit.maxDiffBytes    (optional, int; default 200000)
 //	ai-commit.timeoutSeconds  (optional, int; default 30)
 //
@@ -207,7 +207,17 @@ Config flags (for config command):
   --global           Add --global to the generated git config commands
                      (writes to ~/.gitconfig instead of the repo's .git/config).
   --preset <name>    Use a preset endpoint/model for a known provider.
-                     Available presets: openai, anthropic, ollama, lmstudio`)
+                     Available presets: openai, anthropic, ollama, lmstudio
+
+API key (ai-commit.apiKey) — three forms accepted:
+  sk-...             A literal key value stored in git config.
+  $ENV_VAR           Reads the key from the named environment variable at
+                     runtime (e.g. $OPENAI_API_KEY). The dollar sign must be
+                     the first character; the variable name follows immediately.
+  git-credentials    Delegates to the git credential helper configured for
+                     your system. The helper is queried with the protocol and
+                     host of ai-commit.endpoint; the password field is used as
+                     the API key.`)
 	os.Exit(code)
 }
 
@@ -386,11 +396,16 @@ func runConfig(args []string) error {
 	fmt.Printf("# git-ai-commit configuration — %s (%s)\n", p.Description, scopeLabel)
 	fmt.Println("#")
 	fmt.Println("# Copy and paste the commands below into your terminal.")
+	fmt.Println("#")
+	fmt.Println("# The apiKey value below is a placeholder. Three forms are accepted:")
+	fmt.Println("#   Literal key  : the actual key string (least secure — stored in git config)")
+	fmt.Println("#   Env variable : a name starting with $ — read from the environment at runtime")
+	fmt.Println("#                  e.g. \"$OPENAI_API_KEY\"")
+	fmt.Println("#   Credentials  : the string \"git-credentials\" — delegates to your configured")
+	fmt.Println("#                  git credential helper (most secure)")
 	if p.APIKeyHint != "" && !strings.HasPrefix(p.APIKeyHint, "sk-") {
 		// Local providers don't need a real key, but the field must be non-empty.
 		fmt.Printf("# %s accepts any non-empty string as the API key.\n", p.Description)
-	} else {
-		fmt.Printf("# Replace the apiKey value with your actual %s API key.\n", p.Description)
 	}
 	fmt.Println()
 	fmt.Printf("git config %sai-commit.endpoint %q\n", scopeFlag, p.Endpoint)
@@ -541,9 +556,35 @@ func readConfig() (config, error) {
 	if v, ok := gitConfigGet("ai-commit.model"); ok {
 		cfg.Model = strings.TrimSpace(v)
 	}
-	if v, ok := gitConfigGet("ai-commit.apiKey"); ok {
-		cfg.APIKey = strings.TrimSpace(v)
+
+	if cfg.Endpoint == "" {
+		return cfg, errors.New("missing git config: ai-commit.endpoint (set to base URL, e.g. https://api.openai.com/v1)")
 	}
+	if cfg.Model == "" {
+		// local endpoints may be ok with no model provided...
+	}
+
+	// Normalise: resolve to the canonical /chat/completions URL,
+	// handling any combination of trailing slashes, existing /v1, etc.
+	// We do this before resolving the API key so that git-credentials can use
+	// the normalised endpoint URL.
+	resolved, err := ResolveChatCompletionsEndpoint(cfg.Endpoint)
+	if err != nil {
+		return cfg, fmt.Errorf("invalid ai-commit.endpoint %q: %w", cfg.Endpoint, err)
+	}
+	cfg.Endpoint = resolved
+
+	// Resolve the API key — may be a literal value, an env-var reference, or
+	// the special token "git-credentials".
+	if rawKey, ok := gitConfigGet("ai-commit.apiKey"); ok {
+		key, err := resolveAPIKey(strings.TrimSpace(rawKey), cfg.Endpoint)
+		if err != nil {
+			return cfg, fmt.Errorf("ai-commit.apiKey: %w", err)
+		}
+		cfg.APIKey = key
+	}
+	// If ai-commit.apiKey is not set at all we leave cfg.APIKey empty;
+	// local endpoints (Ollama, LM Studio) work fine without one.
 
 	if v, ok := gitConfigGet("ai-commit.maxDiffBytes"); ok {
 		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
@@ -556,25 +597,115 @@ func readConfig() (config, error) {
 		}
 	}
 
-	if cfg.Endpoint == "" {
-		return cfg, errors.New("missing git config: ai-commit.endpoint (set to base URL, e.g. https://api.openai.com/v1)")
-	}
-	if cfg.Model == "" {
-		// local endpoints may be ok with no model provided...
-	}
-	if cfg.APIKey == "" {
-		// local endpoints may be ok with no api key provided...
-	}
-
-	// Normalise: resolve to the canonical /chat/completions URL,
-	// handling any combination of trailing slashes, existing /v1, etc.
-	resolved, err := ResolveChatCompletionsEndpoint(cfg.Endpoint)
-	if err != nil {
-		return cfg, fmt.Errorf("invalid ai-commit.endpoint %q: %w", cfg.Endpoint, err)
-	}
-	cfg.Endpoint = resolved
-
 	return cfg, nil
+}
+
+// resolveAPIKey resolves the raw value of ai-commit.apiKey into an actual key
+// string. Three forms are supported:
+//
+//  1. Literal — any value that does not match the forms below is returned as-is.
+//  2. Env-var — a value starting with "$" is treated as an environment-variable
+//     name; the variable is read at runtime.
+//     Example config value: $OPENAI_API_KEY
+//  3. git-credentials — the exact string "git-credentials" (case-insensitive)
+//     causes the git credential helper to be queried using the protocol and
+//     host extracted from endpoint; the returned password is used as the key.
+func resolveAPIKey(raw, endpoint string) (string, error) {
+	if raw == "" {
+		return "", nil
+	}
+
+	// Form 2: environment variable reference.
+	if strings.HasPrefix(raw, "$") {
+		varName := raw[1:]
+		if varName == "" {
+			return "", errors.New("environment variable name must not be empty (got bare \"$\")")
+		}
+		val := os.Getenv(varName)
+		if val == "" {
+			return "", fmt.Errorf("environment variable %q is not set or is empty", varName)
+		}
+		return val, nil
+	}
+
+	// Form 3: git credential helper.
+	if strings.EqualFold(raw, "git-credentials") {
+		return resolveAPIKeyFromGitCredentials(endpoint)
+	}
+
+	// Form 1: literal value.
+	return raw, nil
+}
+
+// resolveAPIKeyFromGitCredentials asks the configured git credential helper for
+// the password associated with the host of endpoint, then returns it as the API
+// key. It shells out to `git credential fill`, which consults the same helpers
+// that Git itself uses (macOS Keychain, Windows Credential Manager, libsecret,
+// pass, etc.).
+//
+// The "username" field in the credential request is set to "api-key" as a
+// conventional label; most helpers store credentials by (protocol, host,
+// username) so this keeps LLM keys separate from any Git hosting credentials
+// that may share the same hostname.
+func resolveAPIKeyFromGitCredentials(endpoint string) (string, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("cannot parse endpoint URL for git-credentials lookup: %w", err)
+	}
+
+	protocol := u.Scheme
+	host := u.Hostname()
+	port := u.Port()
+
+	if protocol == "" || host == "" {
+		return "", fmt.Errorf("endpoint %q has no scheme or host; cannot query git credential helper", endpoint)
+	}
+
+	// Build the input for `git credential fill`.
+	// Format: key=value pairs, one per line, terminated by a blank line.
+	var input strings.Builder
+	fmt.Fprintf(&input, "protocol=%s\n", protocol)
+	fmt.Fprintf(&input, "host=%s\n", host)
+	if port != "" {
+		fmt.Fprintf(&input, "host=%s:%s\n", host, port) // some helpers want host:port
+	}
+	fmt.Fprintf(&input, "username=api-key\n")
+	fmt.Fprintf(&input, "\n")
+
+	cmd := exec.Command("git", "credential", "fill")
+	cmd.Stdin = strings.NewReader(input.String())
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+
+	if err := cmd.Run(); err != nil {
+		stderr := strings.TrimSpace(errBuf.String())
+		if stderr != "" {
+			return "", fmt.Errorf("git credential fill failed: %w: %s", err, stderr)
+		}
+		return "", fmt.Errorf("git credential fill failed: %w", err)
+	}
+
+	// Parse the output: lines of "key=value".
+	password := ""
+	for _, line := range strings.Split(out.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "password=") {
+			password = strings.TrimPrefix(line, "password=")
+			break
+		}
+	}
+
+	if password == "" {
+		return "", fmt.Errorf(
+			"git credential fill returned no password for protocol=%s host=%s username=api-key\n"+
+				"Store the key with: git credential approve  (or use your system keychain tool)",
+			protocol, host,
+		)
+	}
+
+	return password, nil
 }
 
 func gitConfigGet(key string) (string, bool) {
