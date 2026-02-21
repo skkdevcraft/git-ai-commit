@@ -212,6 +212,23 @@ Print the generated message to stdout without touching any files:
 git-ai-commit show
 ```
 
+### Preview from a custom diff
+
+Pass `--stdin` to read the diff from standard input instead of the current staged changes. This lets you generate a commit message for any diff — not just what is currently staged:
+
+```sh
+# Generate a message for the last 3 commits
+git diff HEAD~3 | git-ai-commit show --stdin
+
+# Generate a message for changes between two branches
+git diff main..feature/my-branch | git-ai-commit show --stdin
+
+# Generate a message from a saved diff file
+git-ai-commit show --stdin < my-changes.patch
+```
+
+When using `--stdin`, `ai-commit.maxDiffBytes` is not applied — you control what you pipe in.
+
 ### Skip the generated message for a single commit
 
 Pass `-m` to provide your own message — the hook detects existing content and skips the LLM call:
@@ -228,7 +245,7 @@ git commit -m "chore: manual message, no LLM needed"
 |---|---|
 | `git-ai-commit install` | Install the hook into the current repository |
 | `git-ai-commit config [--global] [--preset NAME]` | Print ready-to-paste config commands |
-| `git-ai-commit show` | Generate and print a commit message for the current staged diff |
+| `git-ai-commit show [--stdin]` | Generate and print a commit message for the current staged diff, or for a diff piped via stdin |
 | `git-ai-commit hook prepare-commit-msg FILE [SOURCE [SHA]]` | Called by Git directly; normally not invoked by hand |
 
 ---
@@ -334,7 +351,7 @@ All keys are read from standard Git config (system, global, or local).
 | `ai-commit.endpoint` | yes | `https://api.openai.com/v1` | Base URL of the OpenAI-compatible API |
 | `ai-commit.model` | no | `gpt-5-nano` | Model name to use |
 | `ai-commit.apiKey` | no | _(empty)_ | API key — literal value, `$ENV_VAR`, or `git-credentials` |
-| `ai-commit.maxDiffBytes` | no | `200000` | Truncate diffs larger than this (bytes) |
+| `ai-commit.maxDiffBytes` | no | `200000` | Truncate diffs larger than this (bytes); not applied when using `--stdin` |
 | `ai-commit.timeoutSeconds` | no | `30` | HTTP timeout for the LLM request |
 
 ---

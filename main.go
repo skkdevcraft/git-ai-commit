@@ -5,7 +5,7 @@
 //
 // Usage (show):
 //
-//	git-ai-commit show
+//	git-ai-commit show [--stdin]
 //
 // Usage (config):
 //
@@ -149,7 +149,7 @@ func main() {
 		os.Exit(0)
 
 	case "show":
-		if err := runShow(); err != nil {
+		if err := runShow(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "git-ai-commit: %v\n", err)
 			os.Exit(1)
 		}
@@ -189,13 +189,15 @@ Usage:
   git-ai-commit show
   git-ai-commit config [--global] [--preset openai|anthropic|ollama|lmstudio]
   git-ai-commit install
-	git-ai-commit version
+  git-ai-commit version
 
 Commands:
   hook     Called from the Git prepare-commit-msg hook to prefill the commit
            message editor with an LLM-generated message based on staged diff.
   show     Query the LLM with the current staged diff and print the proposed
            commit message to stdout, without writing any files.
+           Pass --stdin to read the diff from standard input instead, e.g.:
+             git diff HEAD~3 | git-ai-commit show --stdin
   config   Print the git config commands needed to configure git-ai-commit.
            Copy and paste the output into your terminal to apply the settings.
   install  Install the prepare-commit-msg hook into the current repository.
@@ -465,18 +467,38 @@ func runConfig(args []string) error {
 
 // runShow generates a commit message from the staged diff and prints it to stdout.
 // Unlike the hook path, errors are fatal — the user is explicitly asking for output.
-func runShow() error {
+func runShow(args []string) error {
+	useStdin := false
+	for _, a := range args {
+		switch a {
+		case "--stdin":
+			useStdin = true
+		default:
+			return fmt.Errorf("unknown flag: %s", a)
+		}
+	}
+
 	cfg, err := readConfig()
 	if err != nil {
 		return err
 	}
 
-	diff, err := getStagedDiff(cfg.MaxDiffBytes)
-	if err != nil {
-		return err
+	var diff string
+	if useStdin {
+		b, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("read stdin: %w", err)
+		}
+		diff = string(b)
+	} else {
+		diff, err = getStagedDiff(cfg.MaxDiffBytes)
+		if err != nil {
+			return err
+		}
 	}
+
 	if strings.TrimSpace(diff) == "" {
-		return errors.New("no staged changes found — did you forget to git add?")
+		return errors.New("no diff content — either stage some changes or pipe a diff via --stdin")
 	}
 
 	prompt := buildPrompt(diff)
