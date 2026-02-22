@@ -52,19 +52,19 @@ git-ai-commit --help
 #### Linux (x86_64)
 
 ```sh
-curl -fsSL https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_Linux_x86_64.tar.gz | tar -xz && sudo mv git-ai-commit /usr/local/bin/
+curl -fsSL https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_Linux_x86_64.tar.gz | tar -xz git-ai-commit && sudo mv git-ai-commit /usr/local/bin/
 ```
 
 #### Linux (arm64)
 
 ```sh
-curl -fsSL https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_Linux_arm64.tar.gz | tar -xz && sudo mv git-ai-commit /usr/local/bin/
+curl -fsSL https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_Linux_arm64.tar.gz | tar -xz git-ai-commit && sudo mv git-ai-commit /usr/local/bin/
 ```
 
 #### macOS (Apple Silicon)
 
 ```sh
-curl -fsSL https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_Darwin_arm64.tar.gz | tar -xz && sudo mv git-ai-commit /usr/local/bin/
+curl -fsSL https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_Darwin_arm64.tar.gz | tar -xz git-ai-commit && sudo mv git-ai-commit /usr/local/bin/
 ```
 
 If you prefer installing without `sudo`:
@@ -72,7 +72,7 @@ If you prefer installing without `sudo`:
 ```sh
 mkdir -p ~/.local/bin && \
 curl -fsSL https://github.com/skkdevcraft/git-ai-commit/releases/latest/download/git-ai-commit_$(uname -s)_$(uname -m | sed 's/x86_64/x86_64/;s/arm64/arm64/').tar.gz \
-| tar -xz && mv git-ai-commit ~/.local/bin/
+| tar -xz git-ai-commit && mv git-ai-commit ~/.local/bin/
 ```
 
 Make sure `~/.local/bin` is on your `PATH`.
